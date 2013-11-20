@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>点饭</title>
+	<script src="socket_io.js"></script>
+	<script src="jquery-1.8.2.min.js"></script>
+	<script src="pageJSLib/jquery.cookie.js"></script>
+	<script src="pageJSLib/socketIOUploadFileClient.js"></script>
+	<script>
+		var socket;
+		var isDev = false;
+		var socketURL = isDev ? 'http://172.16.32.152:8082' : 'http://172.16.32.152:8081';
+		var isManager = location.search.indexOf("manager") > 0;
+
+		function initUploadSocket(){
+			var siofu = new SocketIOFileUpload(socket);
+			siofu.listenOnInput(document.getElementById("menuImgFile"));
+
+			$("#updateMenuImgBtn").click(function(){
+				
+			});
+
+			siofu.addEventListener("start", function(){
+				// return false;
+			});
+
+			siofu.addEventListener("complete", function(){
+				alert("上传菜单成功");
+			});
+		}
+
+		function initSockets(){
+			socket = io.connect( socketURL );
+
+			socket.on('disconnect', function(){
+				console.log("disconnect from server");
+			})
+
+			socket.on("error", function(){
+				// alert("发送失败");
+			});
+
+			socket.on("orderSuccess", function(){
+				alert("订餐成功");
+			});
+
+			socket.on("refreshOrders", function( data ){
+				refreshOrders( data );
+			});
+
+			socket.on("chatSuccess", function(){
+				console.log("聊天信息发送成功");
+			});
+
+			socket.on("refreshChats", function( data ){
+				refreshChats( data );
+			});
+
+			socket.on("refreshMenu", function( data ){
+				refreshMenu( data );
+			})
+		}
+
+		function createMenu( data ){
+			var $img = $("<img>"),
+				$link = $("<a>"),
+				$line = $("<div>"),
+				$btn = $("<button>"),
+				$imgContainer = $("<td>"),
+				$btnContainer = $("<td>");
+
+			$link.attr("href", data );
+			$link.attr("target", "_blank");
+			$img.attr('src', data );
+
+			$btn.text("删除");
+			$btn.click( function(){
+				var ret = confirm("你是否确定要删除这份菜单？");
+
+				if( ret ){
+					socket.emit( "removeMenu", data );
+				}
+			});
+
+			$imgContainer.append( $link.append($img) );
+			// $btnContainer.append( $btn );
+			$line.append( $imgContainer ).append( $btnContainer );
+
+
+			return $line;
+		}
+
+		function refreshMenu( data ){
+			if( !data || data.length <= 0 ){
+				return;
+			}
+
+			var $list = $("#menuList");
+
+			$list.empty();
+			for (var i = 0; i < data.length; i++) {
+				if( data[i] ){
+					var $line = createMenu( data[i] );
+					$list.append($line);
+				}
+			};
+		}
+
+		function refreshChats( data ){
+			if( !data || data.length <= 0 ){
+				return;
+			}
+
+			var $chatlist = $("#chatMsgsList");
+
+			$chatlist.empty();
+
+			for (var i = 0, len = data.length; i < len; i++) {
+				if( data[i] ){
+					var $msg = $("<div>").text( data[i].user + ":  " + data[i].msg );				
+					$chatlist.append( $msg );
+				}
+			};
+
+			setTimeout(function(){
+				var $msg = $("#chatMsgsContainer");
+				$msg.scrollTop( $msg.height() );
+			});
+		}
+
+		function delOrder( data ){
+			socket.emit( "removeOrder", data );
+		}
+
+		function updateOrder( data ){
+			socket.emit( "updateOrder", data );
+		}
+
+		function createOrder( data ){
+			var $container = $("<tr>");
+			var $name = $("<td>");
+			var $msg = $("<td>");
+			var $price = $("<td>");
+			var $restName = $("<td>");
+			var $delPanel = $("<td>");
+			var $del = $("<button>").addClass("delBtn");
+
+			$name.text( data.user );
+			$msg.text( data.msg );
+			$del.text("删除");
+			$price.text( data.price );
+
+			if( isManager ){
+				$delPanel.append( $del );
+			}
+
+			$container.append( $name ).append( $msg ).append( $price ).append($restName).append( $delPanel );
+			$del.click(function(){
+				delOrder( data );
+			});
+
+			return $container;
+		}
+
+		function refreshOrders( data ){
+			if( !data || !(data instanceof Array) ){
+				return;
+			}
+
+			var $orders = $("#orders"),
+				count = 0;
+
+			$orders.empty();
+			for (var i = 0, len = data.length; i < len; i++) {
+				if( data[i] ){
+					var $msg = createOrder( data[i] );		
+
+					if( $.isNumeric( data[ i ].price ) ){
+						count += parseInt( data[ i ].price );
+					}else{
+						$msg.css({
+							color : "red"
+						});
+					}
+
+					$orders.append( $msg );
+				}
+			};
+
+			var $lastLine = $("<tr>"),
+				$label = $("<td>"),
+				$val = $("<td class='font_right' colspan='4'>");
+
+			$label.text("总价: ");
+			$val.text( "$" + count );
+
+			$lastLine.append( $label ).append( $val );
+			$orders.append( $lastLine );
+		}
+
+		function sendMsg( ){
+			var msg = $("#msg").val(),
+				username = $("#username").val(),
+				price = $("#price").val();
+
+			if( !msg || msg == "" ){
+				alert("请输入消息内容");
+				return;
+			}
+
+			if( !username || username == "" ){
+				alert("请输入姓名");
+				return;
+			}
+
+			if( socket ){
+				socket.emit("commit", {user : username, msg : msg, price : price });
+				$("#msg").val( "" );
+				$("#price").val("");
+			}
+		}
+
+		function orderDinner(){
+			var $msg = $("#msg"),
+				val = $msg.val();
+
+			if( val && val != "" ){
+				$msg.val( "#点饭#" + val );
+				sendMsg( );
+			}else{
+				$msg.val("#点饭#");
+			}
+		}
+
+		function clearOrderList(){
+			var ret = window.confirm("是否清空当前点餐的列表");
+
+			if( ret ){
+				socket.emit("clearAllOrders");
+			}
+		}
+
+		$(document.body).ready(function(){
+			/**
+			 * init name from cookie
+			 */
+			var name = $.cookie("dfName");
+			if( name ){
+				$("#username").val( name );
+			}
+
+			$("#username").change(function(){
+				$.cookie("dfName", $("#username").val(), { expires : 10 });
+			});
+
+			$("#username").bind("keyup", function( e ){
+				if( !e ){
+					e = window.event;
+				}
+
+				if( e.keyCode == 13 ){
+					$("#msg").get(0).focus();
+				}
+			});
+
+			$("#msg").bind("keyup", function( e ){
+				if( !e ){
+					e = window.event;
+				}
+
+				if( e.keyCode == 13 ){
+					sendMsg();
+				}
+			})
+
+			$("#sendBtn").click( sendMsg );
+
+			$("#orderDinner").click( orderDinner );
+
+
+			if( isManager ){
+				$("#clearOrderList").click( clearOrderList );
+			}else{
+				$("#clearOrderList").hide();
+			}
+
+			initSockets();
+			initUploadSocket();
+		});
+	</script>
+	<style>
+		.msgs{
+			width: 400px;
+			position: absolute;
+			top: 20px;
+			bottom: 200px;
+			overflow: scroll;
+		}
+
+		.inputPanel{
+			width: 400px;
+			height: 20px;
+
+			position: absolute;
+			bottom: 150px;
+		}
+
+		.orders, .menuList{
+			position: absolute;
+			left: 420px;
+			width: 350px;
+			height: 100%;
+			overflow: scroll;
+			top: 20px;
+		}
+
+		.menuList{
+			left: 800px;
+		}
+
+		label{
+			margin-right: 10px;
+		}
+
+		.msgInput{
+			width: 300px;
+		}
+
+		.delBtn{
+			margin-left: 10px;
+		}
+
+		td{
+			margin-right: 5px;
+		}
+
+		table{
+			border-spacing: 8px 0px;
+			text-align: center;
+		}
+
+		.font_right{
+			text-align: right;
+		}
+
+		.menuListImgs img{
+			width: 100px;
+		}
+
+		.clearOrderList{
+			margin-top: 10px;
+		}
+	</style>
+</head>
+<body>
+	<section class="chatMsgs">
+		<article id="chatMsgsContainer" class="msgs">
+			<div>聊天列表</div>
+			<div id="chatMsgsList">
+			</div>
+		</article>
+		<article class="inputPanel">
+			<div><label for="username">姓名:</label><input type="text" id="username" /></div>
+			<div><label for="msg">消息:</label><input type="text" class="msgInput" id="msg"></div>
+			<div><label for="price">价钱:</label><input type="text" class="msgInput" id="price"></div>
+			<button id="sendBtn">发送</button>
+			<button id="orderDinner">点餐</button>
+			<div><span>注：文本前缀为"#点饭#"的消息即为点餐</span></div>
+		</article>
+	</section>
+	<aside class="orders">
+		<div>点餐列表</div>
+		<table>
+			<thead>
+				<tr>
+					<td>姓名</td>
+					<td>菜单</td>
+					<td>价钱</td>
+					<td>饭店</td>
+					<td>删除</td>
+				</tr>
+			</thead>
+			<tbody id="orders"></tbody>
+		</table>
+		<div><button id="clearOrderList" class="clearOrderList">清空点餐列表</button></div>
+	</aside>
+	<aside class="menuList">
+		<div>菜单</div>
+		<input type="file" id="menuImgFile" />
+		<button id="updateMenuImgBtn">提交</button>
+		<table id="menuList" class="menuListImgs"></table>
+	</aside>
+</body>
+</html>
